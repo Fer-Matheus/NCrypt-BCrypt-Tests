@@ -7,25 +7,13 @@
 #include <ncrypt.h>
 
 #include "include/enum.h"
+#include "include/Utils/macros.h"
 
 #pragma comment(lib, "ncrypt.lib")
 #pragma comment(lib, "bcrypt.lib")
 #pragma comment(lib, "crypt32.lib")
 
-#define LOG(message) std::cout << message;
-
-#define Error(stage, code)\
-	if (code != 0){\
-		LOG("Error code: " << std::hex << code << "\n");\
-		LOG(stage << " fail\n");\
-		exit(-1);\
-	}else{\
-		LOG(stage << " OK\n");\
-	}\
-
-#define FOR(size) for(int i = 0; i < size; i++)
-
-Type type = Type::ECC;
+Type type = Type::RSA;
 
 std::vector<unsigned char> Hash(const wchar_t* data) {
 	BCRYPT_ALG_HANDLE algHandle;
@@ -63,7 +51,7 @@ void CreateKey() {
 	auto status = NCryptOpenStorageProvider(&pHandle, MS_PLATFORM_CRYPTO_PROVIDER, 0);
 	Error("Open Storage Provider", status);
 
-	status = NCryptCreatePersistedKey(pHandle, &keyHandle, BCRYPT_RSA_ALGORITHM, L"Mamaco", 0, NCRYPT_OVERWRITE_KEY_FLAG);
+	status = NCryptCreatePersistedKey(pHandle, &keyHandle, (type == Type::RSA ? BCRYPT_RSA_ALGORITHM : BCRYPT_ECDSA_ALGORITHM), L"Mamaco", 0, NCRYPT_OVERWRITE_KEY_FLAG);
 	Error("Create Key", status);
 
 	DWORD keyUsage = NCRYPT_ALLOW_SIGNING_FLAG;
@@ -107,21 +95,23 @@ void Sign() {
 	DWORD size = 0;
 
 	BCRYPT_PKCS1_PADDING_INFO info;
-	info.pszAlgId = BCRYPT_SHA256_ALGORITHM;
+	info.pszAlgId = (type == Type::RSA ? BCRYPT_SHA256_ALGORITHM : BCRYPT_ECDSA_P256_ALGORITHM);
 
-	status = NCryptSignHash(keyHandle, &info, digest.data(), digest.size(), NULL, NULL, &size, BCRYPT_PAD_PKCS1);
+	auto padding = (type == Type::RSA ? BCRYPT_PAD_PKCS1 : 0);
+
+	status = NCryptSignHash(keyHandle, &info, digest.data(), digest.size(), NULL, NULL, &size, padding);
 	Error("First SignHash\n", status);
 
 	std::vector<unsigned char> signature(size);
 
-	status = NCryptSignHash(keyHandle, &info, digest.data(), digest.size(), signature.data(), size, &size, BCRYPT_PAD_PKCS1);
+	status = NCryptSignHash(keyHandle, &info, digest.data(), digest.size(), signature.data(), size, &size, padding);
 	Error("Second SignHash\n", status);
 
 	LOG("Signature: \n");
 	FOR(size) printf("%02x", signature[i]);
 	LOG("\n");
 
-	status = NCryptVerifySignature(keyHandle, &info, digest.data(), digest.size(), signature.data(), signature.size(), BCRYPT_PAD_PKCS1);
+	status = NCryptVerifySignature(keyHandle, &info, digest.data(), digest.size(), signature.data(), signature.size(), padding);
 	Error("Verify Signature\n", status);
 
 	NCryptFreeObject(keyHandle);
